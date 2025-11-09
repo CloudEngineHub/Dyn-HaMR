@@ -141,6 +141,9 @@ class BaseSceneModel(nn.Module):
         self.params.set_param("trans", init_trans)
         self.params.set_param("root_orient", init_rot)
         self.params.set_param("is_right", is_right, requires_grad=False)
+        
+        # Store initial latent pose in obs_data for pose prior loss
+        obs_data["init_latent_pose"] = init_pose_latent.detach()
         # print(init_pose.shape, init_pose_latent.shape, init_betas.shape, init_trans.shape, init_rot.shape, is_right.shape)
         # raise ValueError
 

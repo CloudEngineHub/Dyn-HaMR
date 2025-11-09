@@ -30,6 +30,70 @@ def read_keypoints(keypoint_fn):
     return body_keypoints
 
 
+def load_keypoints_with_interp(kp_paths, interp=True):
+    """
+    Load 2D keypoints from paths and interpolate missing frames between tmin and tmax.
+    
+    Args:
+        kp_paths: List of paths to keypoint JSON files
+        interp: Whether to interpolate missing frames
+    
+    Returns:
+        joints2d_data: (T, J, 3) array of keypoints with interpolation
+    """
+    # Load all keypoints
+    joints2d_data = np.stack([read_keypoints(p) for p in kp_paths], axis=0).astype(np.float32)
+    
+    if not interp:
+        return joints2d_data
+    
+    # Find which frames have valid keypoints (file exists and has data)
+    vis_mask = np.array([os.path.isfile(p) for p in kp_paths])
+    # Also check if keypoints are not all zeros
+    has_data = ~np.all(joints2d_data == 0, axis=(1, 2))
+    vis_mask = vis_mask & has_data
+    vis_idcs = np.where(vis_mask)[0]
+    
+    if len(vis_idcs) == 0 or len(vis_idcs) == 1:
+        # No interpolation needed
+        return joints2d_data
+    
+    # Interpolate only between tmin and tmax (same as MANO interpolation)
+    T, J, _ = joints2d_data.shape
+    tmin, tmax = min(vis_idcs), max(vis_idcs) + 1
+    times = np.arange(tmin, tmax)
+    
+    # Interpolate each joint's x, y coordinates separately
+    for j in range(J):
+        # Interpolate x coordinate
+        x_interp = interp1d(vis_idcs, joints2d_data[vis_idcs, j, 0], 
+                           kind='linear', bounds_error=False)
+        # Interpolate y coordinate
+        y_interp = interp1d(vis_idcs, joints2d_data[vis_idcs, j, 1], 
+                           kind='linear', bounds_error=False)
+        
+        # Interpolate for frames between tmin and tmax
+        for t in times:
+            if t not in vis_idcs:
+                # Interpolate
+                joints2d_data[t, j, 0] = x_interp(t)
+                joints2d_data[t, j, 1] = y_interp(t)
+                
+                # Set confidence as average of neighboring visible frames
+                prev_vis = vis_idcs[vis_idcs < t]
+                next_vis = vis_idcs[vis_idcs > t]
+                if len(prev_vis) > 0 and len(next_vis) > 0:
+                    conf_prev = joints2d_data[prev_vis[-1], j, 2]
+                    conf_next = joints2d_data[next_vis[0], j, 2]
+                    joints2d_data[t, j, 2] = (conf_prev + conf_next) / 2.0 * 0.8  # Slightly lower confidence for interpolated
+                elif len(prev_vis) > 0:
+                    joints2d_data[t, j, 2] = joints2d_data[prev_vis[-1], j, 2] * 0.8
+                elif len(next_vis) > 0:
+                    joints2d_data[t, j, 2] = joints2d_data[next_vis[0], j, 2] * 0.8
+    
+    return joints2d_data
+
+
 def read_mask_path(path):
     mask_path = None
     if not os.path.isfile(path):

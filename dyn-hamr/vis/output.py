@@ -16,19 +16,27 @@ from .fig_specs import get_seq_figure_skip, get_seq_static_lookat_points
 from .tools import mesh_to_geometry, smooth_results
 
 
-def prep_result_vis(res, vis_mask, track_ids, body_model, temporal_smooth):
+def prep_result_vis(res, vis_mask, track_ids, body_model, temporal_smooth, smooth_trans=True):
     """
     :param res (dict) with (B, T, *) tensor elements, B tracks and T frames
     :param vis_mask (B, T) with visibility of each track in each frame
     :param track_ids (B,) index of each track
+    :param temporal_smooth (bool) whether to apply temporal smoothing
+    :param smooth_trans (bool) whether to smooth translation (only used if temporal_smooth=True)
     """
     print("RESULT FIELDS", res.keys())
     res = detach_all(res)
     # print(res.keys(), res["is_right"])
     with torch.no_grad():
         if temporal_smooth:
-            print('running temporal smooth')
-            res["root_orient"], res["pose_body"], res['betas'], res["trans"] = smooth_results(res["root_orient"], res["pose_body"], res['betas'], res["is_right"], res["trans"])
+            if smooth_trans:
+                print('running temporal smooth (including trans)')
+                # Smooth everything including trans
+                res["root_orient"], res["pose_body"], res['betas'], res["trans"] = smooth_results(res["root_orient"], res["pose_body"], res['betas'], res["is_right"], res["trans"])
+            else:
+                print('running temporal smooth (excluding trans)')
+                # Smooth only pose and shape, not trans
+                res["root_orient"], res["pose_body"], res['betas'], _ = smooth_results(res["root_orient"], res["pose_body"], res['betas'], res["is_right"])
 
         world_smpl = run_mano(
             body_model,
@@ -80,30 +88,31 @@ def build_scene_dict(
     }
 
     # Create ground plane based on hand mesh height
-    verts = scene_dict["geometry"][0]  # Get vertices from geometry
-    if len(verts) > 0:
-        # Find minimum height across all frames and vertices
-        min_height = float('inf')
-        for frame_verts in verts:
-            if len(frame_verts) > 0:
-                frame_min = frame_verts[..., 1].min().item()  # y-coordinate is height
-                min_height = min(min_height, frame_min)
-        
-        # Set ground plane further below minimum height
-        ground_offset = -0.5  # 20cm below minimum height
-        ground_height = min_height - ground_offset
-        
-        # Create ground plane transform
-        R = torch.eye(3)  # Identity rotation (flat ground)
-        t = torch.tensor([0.0, ground_height, 0.0])  # Translate to ground height
-        scene_dict["ground"] = cam_util.make_4x4_pose(R, t)
-
-        # Save ground mesh for Blender debugging
-        import trimesh
-        from vis.viewer import make_checkerboard
-        ground_mesh = make_checkerboard(color0=[0.9, 0.95, 1.0], color1=[0.7, 0.8, 0.85], up="y", alpha=1.0)
-        ground_mesh.apply_translation([0.0, ground_height, 0.0])
-        ground_mesh.export("ground_debug.obj")
+    # DISABLED: Ground plane visualization disabled to better see coordinate system
+    # verts = scene_dict["geometry"][0]  # Get vertices from geometry
+    # if len(verts) > 0:
+    #     # Find minimum height across all frames and vertices
+    #     min_height = float('inf')
+    #     for frame_verts in verts:
+    #         if len(frame_verts) > 0:
+    #             frame_min = frame_verts[..., 1].min().item()  # y-coordinate is height
+    #             min_height = min(min_height, frame_min)
+    #     
+    #     # Set ground plane further below minimum height
+    #     ground_offset = -0.5  # 20cm below minimum height
+    #     ground_height = min_height - ground_offset
+    #     
+    #     # Create ground plane transform
+    #     R = torch.eye(3)  # Identity rotation (flat ground)
+    #     t = torch.tensor([0.0, ground_height, 0.0])  # Translate to ground height
+    #     scene_dict["ground"] = cam_util.make_4x4_pose(R, t)
+    #
+    #     # Save ground mesh for Blender debugging
+    #     import trimesh
+    #     from vis.viewer import make_checkerboard
+    #     ground_mesh = make_checkerboard(color0=[0.9, 0.95, 1.0], color1=[0.7, 0.8, 0.85], up="y", alpha=1.0)
+    #     ground_mesh.apply_translation([0.0, ground_height, 0.0])
+    #     ground_mesh.export("ground_debug.obj")
 
     # if floor_plane is not None:
     #     # compute the ground transform
@@ -154,6 +163,7 @@ def animate_scene(
     render_cam=True,
     render_ground=True,
     debug=False,
+    render_keypoints=False,
     **kwargs,
 ):
     if len(render_views) < 1:
@@ -177,6 +187,7 @@ def animate_scene(
         show_bg = is_src and render_bg
         show_ground = render_ground and not is_src
         show_cam = render_cam and not is_src
+        show_keypoints = is_src and render_keypoints  # Only show keypoints on source view
         vis_name = f"{out_name}_{cam_name}"
         print(f"{cam_name} has {len(cam_poses)} poses")
         skip = 10 if debug else 1
@@ -186,6 +197,7 @@ def animate_scene(
             render_bg=show_bg,
             render_ground=show_ground,
             render_cam=show_cam,
+            render_keypoints=show_keypoints,
             **kwargs,
         )
         save_paths.append(save_path)
@@ -287,11 +299,11 @@ def build_pyrender_scene(
             vis.add_mesh_frame(meshes, debug=debug)
 
     # add camera markers
-    # if render_cam:
-    #     if accumulate:
-    #         vis.add_camera_markers_static(src_cams[::skip])
-    #     else:
-    #         vis.add_camera_markers(src_cams[::skip])
+    if render_cam:
+        if accumulate:
+            vis.add_camera_markers_static(src_cams[::skip])
+        else:
+            vis.add_camera_markers(src_cams[::skip])
 
     return scene
 

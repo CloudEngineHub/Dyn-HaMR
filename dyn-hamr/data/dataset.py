@@ -17,7 +17,7 @@ import time
 from util.logger import Logger
 from geometry.camera import invert_camera
 
-from .tools import read_keypoints, read_mask_path, load_mano_preds
+from .tools import read_keypoints, read_mask_path, load_mano_preds, load_keypoints_with_interp
 from .vidproc import preprocess_cameras, preprocess_frames, preprocess_tracks
 
 
@@ -222,18 +222,18 @@ class MultiPeopleDataset(Dataset):
             vis_mask = get_ternary_mask(vis_mask)
             data_out["vis_mask"].append(vis_mask)
 
-            # load 2d keypoints for visible frames
+            # load 2d keypoints for visible frames with interpolation
             kp_paths = [
                 f"{self.track_dirs[i]}/{x}_keypoints.json" for x in self.sel_img_names
             ]
-            # (T, J, 3) (x, y, conf)
-            joints2d_data = np.stack(
-                [read_keypoints(p) for p in kp_paths], axis=0
-            ).astype(np.float32)
+            # (T, J, 3) (x, y, conf) - with interpolation for missing frames
+            joints2d_data = load_keypoints_with_interp(kp_paths, interp=interp_input)
             # Discard bad ViTPose detections
             joints2d_data[
                 np.repeat(joints2d_data[:, :, [2]] < MIN_KEYP_CONF, 3, axis=2)
             ] = 0
+            # Set all confidence values to 1.0 for optimization
+            joints2d_data[:, :, 2] = 1.0
             data_out["joints2d"].append(joints2d_data)
 
             # load single image mano predictions

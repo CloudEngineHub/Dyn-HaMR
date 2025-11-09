@@ -61,6 +61,27 @@ We propose **Dyn-HaMR** to reconstruct 4D global hand motion from monocular vide
 <br/>
 
 ## News :triangular_flag_on_post:
+- [2025/11/09] 🚀 **Major Update**: 
+  - Integrated [VIPE](https://github.com/facebookresearch/vipe) for camera estimation, significantly improving reconstruction quality over DROID-SLAM
+  - Enhanced HaMeR with robust hallucination prevention and bbox jump correction for better hand tracking
+  - Improved temporal consistency with IoU-based overlap detection and handedness tracking
+  
+  See comparison below:
+
+  <table>
+    <tr>
+      <th>Previous: DROID-SLAM</th>
+      <th>New: VIPE + Enhanced HaMeR (Recommended)</th>
+    </tr>
+    <tr>
+      <td>
+        <video src="./assets/droid_result.mp4" width="100%"></video>
+      </td>
+      <td>
+        <video src="./assets/vipe_result.mp4" width="100%"></video>
+      </td>
+    </tr>
+  </table>
 - [2025/06/04] Code released.
 - [2024/12/18] [Paper](https://arxiv.org/abs/2412.12861) is now available on arXiv. ⭐
 
@@ -139,9 +160,21 @@ Please follow the instructions [here](https://github.com/MengHao666/Hand-BMC-pyt
 ### Fitting on RGB-(D) videos 🎮
 To run the optimization pipeline for fitting on arbitrary RGB-(D) videos, please first edit the path information here in `dyn-hamr/confs/data/video.yaml`, where `root` is the root folder to all of your datasets. `video_dir` is the corresponding folder that contains the videos. The key `seq` represents the video name you wanted to process. For example, you can run the following command to recover the global motion for `test/videos/demo1.mp4`:
 
+```bash
+python run_opt.py data=video run_opt=True data.seq=demo1 is_static=<True or False>
 ```
-python run_opt.py data=video run_opt=True data.seq=demo1 is_static=<True of False>
+
+#### 🌟 Using VIPE for Camera Estimation (Recommended)
+For significantly better camera estimation quality, use VIPE instead of DROID-SLAM:
+
+```bash
+python run_opt.py data=video_vipe run_opt=True data.seq=demo1 is_static=False
 ```
+
+VIPE will automatically run if results are not found. Make sure you have:
+1. Installed VIPE in `third-party/vipe/` with conda environment named `vipe`
+2. Set `src_path` in `dyn-hamr/confs/data/video_vipe.yaml` to your video file
+
 By default, the camera parameters will be predicted during the process and assumes a moving camera (`is_static=False`). If your video is recorded with a static camera, you can add `is_static=True` for more stable optimization. The result will be saved to `outputs/logs/video-custom/<DATE>/<VIDEO_NAME>-<tracklet>-shot-<shot_id>-<start_frame_id>-<end_frame_id>`. After optimization, you can specify the output log dir and visualize the results by running the following command:
 ```
 python run_vis.py --log_root <LOG_ROOT>
@@ -156,7 +189,7 @@ As a multi-stage pipeline, you can customize the optimization process. Add `is_s
 Coming soon.
 
 ## Acknowledgements
-The PyTorch implementation of MANO is based on [manopth](https://github.com/hassony2/manopth). Part of the fitting and optimization code of this repository is borrowed from [SLAHMR](https://github.com/vye16/slahmr). For data preprocessing and observation, [ViTPose](https://github.com/ViTAE-Transformer/ViTPose) and [HaMeR](https://github.com/geopavlakos/hamer/) is used for 2D keypoints detection and MANO parameter initilization and [DPVO](https://github.com/princeton-vl/DPVO), [DROID-SLAM](https://github.com/princeton-vl/DROID-SLAM) is used for camera motion estimation. For biomechanical constraints and motion prior, we use the code from [here](https://github.com/MengHao666/Hand-BMC-pytorch) and [HMP](https://hmp.is.tue.mpg.de/). We thank all the authors for their impressive work!
+The PyTorch implementation of MANO is based on [manopth](https://github.com/hassony2/manopth). Part of the fitting and optimization code of this repository is borrowed from [SLAHMR](https://github.com/vye16/slahmr). For data preprocessing and observation, [ViTPose](https://github.com/ViTAE-Transformer/ViTPose) and [HaMeR](https://github.com/geopavlakos/hamer/) is used for 2D keypoints detection and MANO parameter initilization. For camera motion estimation, we support [VIPE](https://github.com/facebookresearch/vipe) (recommended), [DPVO](https://github.com/princeton-vl/DPVO), and [DROID-SLAM](https://github.com/princeton-vl/DROID-SLAM). For biomechanical constraints and motion prior, we use the code from [here](https://github.com/MengHao666/Hand-BMC-pytorch) and [HMP](https://hmp.is.tue.mpg.de/). We thank all the authors for their impressive work!
 
 ## License
 Please see [License](https://github.com/ZhengdiYu/Dyn-HaMR/blob/main/LICENSE) for details of Dyn-HaMR. This code and model are available only for non-commercial research purposes as defined in the LICENSE (i.e., MIT LICENSE). Note that, for MANO you must agree with the LICENSE of it. You can check the LICENSE of MANO from https://mano.is.tue.mpg.de/license.html.

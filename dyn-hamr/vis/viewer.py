@@ -265,11 +265,31 @@ class OffscreenAnimation(AnimationBase):
         self.viewer = pyrender.OffscreenRenderer(*self.viewport_size)
 
         self.bg_seq = []
+        self.keypoints_seq = None  # Store GT 2D keypoints for overlay
+        self.pred_keypoints_seq = None  # Store predicted 2D keypoints
 
     def set_bg_seq(self, bg_imgs):
         assert isinstance(bg_imgs, list)
         print(f"setting length {len(bg_imgs)} bg sequence")
         self.bg_seq = bg_imgs
+
+    def set_keypoints_seq(self, keypoints_seq):
+        """
+        Set GT 2D keypoints sequence for overlay visualization
+        Args:
+            keypoints_seq: List of (J, 3) arrays with [x, y, confidence] for each frame
+        """
+        self.keypoints_seq = keypoints_seq
+        print(f"setting length {len(keypoints_seq)} GT keypoints sequence")
+    
+    def set_pred_keypoints_seq(self, pred_keypoints_seq):
+        """
+        Set predicted 2D keypoints sequence
+        Args:
+            pred_keypoints_seq: List of (J, 2) arrays with [x, y] for each frame
+        """
+        self.pred_keypoints_seq = pred_keypoints_seq
+        print(f"setting length {len(pred_keypoints_seq)} predicted keypoints sequence")
 
     def delete(self):
         self.viewer.delete()
@@ -277,8 +297,30 @@ class OffscreenAnimation(AnimationBase):
     def close(self):
         self.delete()
 
+    def draw_keypoints_on_image(self, img, keypoints, radius=4, color=(0, 255, 0), thickness=-1, conf_threshold=0.3):
+        """
+        Draw 2D keypoints on an image
+        Args:
+            img: numpy array (H, W, 3)
+            keypoints: (J, 3) array with [x, y, confidence]
+            radius: circle radius for keypoints
+            color: BGR color tuple
+            thickness: -1 for filled circles
+            conf_threshold: minimum confidence to draw keypoint
+        Returns:
+            img with keypoints drawn
+        """
+        import cv2
+        img = img.copy()
+        for j in range(keypoints.shape[0]):
+            x, y, conf = keypoints[j]
+            if conf > conf_threshold:
+                # Draw circle at keypoint location
+                cv2.circle(img, (int(x), int(y)), radius, color, thickness)
+        return img
+
     def render(
-        self, render_bg=True, render_ground=True, render_cam=True, fac=1.0, **kwargs
+        self, render_bg=True, render_ground=True, render_cam=True, fac=1.0, render_keypoints=False, **kwargs
     ):
         flags = RenderFlags.RGBA | RenderFlags.SHADOWS_DIRECTIONAL
         self.ground_node.mesh.is_visible = render_ground and (not render_bg)
@@ -297,6 +339,25 @@ class OffscreenAnimation(AnimationBase):
             alpha = fac * rgba[..., 3:]
             img = alpha * rgba[..., :3] + (1 - alpha) * bg
             img = (255 * img).astype(np.uint8)
+
+        # Overlay 2D keypoints if available and requested
+        if render_keypoints and render_bg:
+            # Draw GT keypoints in GREEN (larger)
+            if self.keypoints_seq is not None:
+                t = min(self.anim_idx, len(self.keypoints_seq) - 1)
+                keypoints = self.keypoints_seq[t]
+                if keypoints is not None and len(keypoints) > 0:
+                    img = self.draw_keypoints_on_image(img, keypoints, color=(0, 255, 0), radius=5)
+            
+            # Draw predicted keypoints in RED (smaller)
+            if self.pred_keypoints_seq is not None:
+                t = min(self.anim_idx, len(self.pred_keypoints_seq) - 1)
+                pred_kp = self.pred_keypoints_seq[t]
+                if pred_kp is not None and len(pred_kp) > 0:
+                    # Add confidence=1.0 if only (J, 2)
+                    if pred_kp.ndim == 2 and pred_kp.shape[1] == 2:
+                        pred_kp = np.concatenate([pred_kp, np.ones((len(pred_kp), 1))], axis=1)
+                    img = self.draw_keypoints_on_image(img, pred_kp, color=(0, 0, 255), radius=3, conf_threshold=0.0)
 
         return img
 

@@ -26,9 +26,10 @@ vis:
     - above
     - side
     - front
-    # - src_cam
+    - src_cam
   make_grid: True
   overwrite: False
+  render_keypoints: False  # Overlay GT 2D keypoints on source camera view
 
 MANO:
   MODEL_PATH: ${paths.DATA_DIR}/mano

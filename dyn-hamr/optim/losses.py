@@ -476,6 +476,25 @@ class RootLoss(StageLoss):
             loss += self.loss_weights["cam_t_smooth"] * cur_loss
             stats_dict["cam_t_smooth"] = cur_loss
 
+        # Depth constraint: keep hand in front of camera
+        if (
+            "joints3d" in pred_data
+            and "cameras" in pred_data
+            and self.loss_weights.get("depth_constraint", 0.0) > 0.0
+        ):
+            # Extract cam_R and cam_t from cameras tuple
+            # cameras = (cam_R, cam_t, cam_f, cam_center)
+            cam_R, cam_t, cam_f, cam_center = pred_data["cameras"]
+            cur_loss = depth_constraint_loss(
+                pred_data["joints3d"],
+                cam_R,
+                cam_t,
+                min_depth=0.0,
+                max_depth=999
+            )
+            loss += self.loss_weights["depth_constraint"] * cur_loss
+            stats_dict["depth_constraint"] = cur_loss
+
         print(stats_dict)
         return loss, stats_dict
 
@@ -488,6 +507,46 @@ def rotation_smoothness_loss(R1, R2):
 
 def translation_smoothness_loss(t1, t2):
     return torch.sum((t2 - t1) ** 2)
+
+
+def depth_constraint_loss(joints3d, cam_R, cam_t, min_depth=0.0, max_depth=999):
+    """
+    Penalize joints that are behind the camera or too far away.
+    Ensures hand stays within reasonable depth range in camera space.
+    
+    :param joints3d (B, T, J, 3) or (T, J, 3) joints in world space
+    :param cam_R (B, T, 3, 3) or (T, 3, 3) world-to-camera rotation
+    :param cam_t (B, T, 3) or (T, 3) world-to-camera translation
+    :param min_depth minimum allowed Z in camera space (default 0.1m)
+    :param max_depth maximum allowed Z in camera space (default 5.0m)
+    """
+    # Handle both (B, T, J, 3) and (T, J, 3) shapes
+    if joints3d.ndim == 3:
+        # (T, J, 3) -> add batch dimension
+        joints3d = joints3d.unsqueeze(0)  # (1, T, J, 3)
+    if cam_R.ndim == 3:
+        # (T, 3, 3) -> add batch dimension
+        cam_R = cam_R.unsqueeze(0)  # (1, T, 3, 3)
+    if cam_t.ndim == 2:
+        # (T, 3) -> add batch dimension
+        cam_t = cam_t.unsqueeze(0)  # (1, T, 3)
+    
+    # Transform joints to camera space
+    B, T, J, _ = joints3d.shape
+    joints_cam = torch.einsum("btij,btjk->btik", cam_R, joints3d.transpose(-1, -2)).transpose(-1, -2)
+    joints_cam = joints_cam + cam_t[..., None, :]  # (B, T, J, 3)
+    
+    # Get Z coordinate (depth)
+    depth = joints_cam[..., 2]  # (B, T, J)
+    
+    # Penalize negative depth (behind camera) heavily
+    behind_camera_loss = torch.sum(torch.relu(-depth) ** 2)
+    
+    # Penalize depth outside reasonable range
+    too_close_loss = torch.sum(torch.relu(min_depth - depth) ** 2)
+    too_far_loss = torch.sum(torch.relu(depth - max_depth) ** 2)
+    
+    return behind_camera_loss * 100.0 + too_close_loss + too_far_loss
 
 
 def camera_smoothness_loss(R1, t1, R2, t2):
@@ -517,7 +576,9 @@ class SMPLLoss(RootLoss):
         # prior to keep latent pose likely
         if "latent_pose" in pred_data and self.loss_weights["pose_prior"] > 0.0:
             # print('running latent_pose loss!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
-            cur_loss = pose_prior_loss(pred_data["latent_pose"], valid_mask)
+            # Use initial latent pose from HaMeR as the prior target
+            latent_pose_init = observed_data["init_latent_pose"]
+            cur_loss = pose_prior_loss(pred_data["latent_pose"], latent_pose_init, valid_mask)
             loss += self.loss_weights["pose_prior"] * cur_loss
             stats_dict["pose_prior"] = cur_loss
 
@@ -1015,13 +1076,19 @@ class GeneralContactLoss(nn.Module):
         losses = self.criterion(**args)
         return losses
 
-def pose_prior_loss(latent_pose_pred, mask=None):
+def pose_prior_loss(latent_pose_pred, latent_pose_init=None, mask=None):
     """
-    :param latent_pose_pred (B, T, D)
+    :param latent_pose_pred (B, T, D) - optimized latent pose
+    :param latent_pose_init (optional) (B, T, D) - initial HaMeR prediction
     :param mask (optional) (B, T)
     """
-    # prior is isotropic gaussian so take L2 distance from 0
-    loss = latent_pose_pred**2
+    if latent_pose_init is not None:
+        # Penalize deviation from original HaMeR prediction
+        loss = (latent_pose_pred - latent_pose_init)**2
+    else:
+        # Fallback: prior is isotropic gaussian so take L2 distance from 0
+        loss = latent_pose_pred**2
+    
     if mask is not None:
         loss = loss[mask.bool()]
     loss = torch.sum(loss)
