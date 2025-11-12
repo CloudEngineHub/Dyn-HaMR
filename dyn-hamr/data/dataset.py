@@ -228,12 +228,15 @@ class MultiPeopleDataset(Dataset):
             ]
             # (T, J, 3) (x, y, conf) - with interpolation for missing frames
             joints2d_data = load_keypoints_with_interp(kp_paths, interp=interp_input)
+            # print('joints2d_data: ', joints2d_data.shape)
+            # print('joints2d_data[:, :, [2]]: ', np.unique(joints2d_data[:, :, [2]]))
+            # raise ValueError
             # Discard bad ViTPose detections
+            joints2d_data[:, :, 2] = 1.0
             joints2d_data[
                 np.repeat(joints2d_data[:, :, [2]] < MIN_KEYP_CONF, 3, axis=2)
             ] = 0
             # Set all confidence values to 1.0 for optimization
-            joints2d_data[:, :, 2] = 1.0
             data_out["joints2d"].append(joints2d_data)
 
             # load single image mano predictions
@@ -250,6 +253,9 @@ class MultiPeopleDataset(Dataset):
             data_out["init_root_orient"].append(orient_init)
             data_out["init_trans"].append(trans_init)
             data_out['is_right'].append(is_right)
+            
+            # DEBUG: Print hand type for each track
+            print(f"DEBUG: Track {i} (tid={tid}): is_right={is_right[0] if len(is_right) > 0 else 'empty'}, {len(pred_paths)} frames")
 
             # data_out["floor_plane"].append(DEFAULT_GROUND[:3] * DEFAULT_GROUND[3:])
 
@@ -294,7 +300,9 @@ class MultiPeopleDataset(Dataset):
         obs_data["track_id"] = int(self.track_ids[idx])
         # print(self.track_ids[idx], obs_data["is_right"])
         # print(self.track_ids[idx] == obs_data["is_right"])
-        assert int(self.track_ids[idx]) == int(obs_data["is_right"][idx])
+        # is_right should be constant across time for each track
+        assert torch.all(obs_data["is_right"] == obs_data["is_right"][0]), "is_right should be constant"
+        assert int(self.track_ids[idx]) == int(obs_data["is_right"][0]), f"Track ID {self.track_ids[idx]} != is_right {obs_data['is_right'][0]}"
         obs_data["seq_name"] = self.seq_name
         return obs_data
 

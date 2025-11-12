@@ -574,13 +574,21 @@ class SMPLLoss(RootLoss):
         )
 
         # prior to keep latent pose likely
+        print(f"DEBUG pose_prior check: 'latent_pose' in pred_data = {'latent_pose' in pred_data}, loss_weight = {self.loss_weights.get('pose_prior', 'NOT_FOUND')}")
+        if "latent_pose" in pred_data:
+            print(f"  latent_pose shape: {pred_data['latent_pose'].shape}")
+        if "init_latent_pose" in observed_data:
+            print(f"  init_latent_pose shape: {observed_data['init_latent_pose'].shape}")
+        
         if "latent_pose" in pred_data and self.loss_weights["pose_prior"] > 0.0:
-            # print('running latent_pose loss!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
             # Use initial latent pose from HaMeR as the prior target
             latent_pose_init = observed_data["init_latent_pose"]
             cur_loss = pose_prior_loss(pred_data["latent_pose"], latent_pose_init, valid_mask)
+            print("pose_prior: ", cur_loss, pred_data["latent_pose"][0],latent_pose_init[0])
             loss += self.loss_weights["pose_prior"] * cur_loss
             stats_dict["pose_prior"] = cur_loss
+        else:
+            raise ValueError
 
         # prior to keep PCA shape likely
         if "betas" in pred_data and self.loss_weights["shape_prior"] > 0.0:
@@ -804,10 +812,11 @@ def get_visible_mask(obs_data):
 
 
 class Joints2DLoss(nn.Module):
-    def __init__(self, ignore_op_joints=None, joints2d_sigma=100):
+    def __init__(self, ignore_op_joints=None, joints2d_sigma=100, normalize_by_scale=True):
         super().__init__()
         self.ignore_op_joints = ignore_op_joints
         self.joints2d_sigma = joints2d_sigma
+        self.normalize_by_scale = normalize_by_scale
 
     def forward(self, joints2d_obs, joints2d_pred, mask=None):
         """
@@ -825,13 +834,84 @@ class Joints2DLoss(nn.Module):
             # set confidence to 0 so not weighted
             joints2d_obs_conf[..., self.ignore_op_joints, :] = 0.0
 
+        # Compute error
+        error = joints2d_pred - joints2d_obs[..., :2]  # (N, 22, 2)
+        
+        # Normalize by hand scale to make loss resolution-independent
+        if self.normalize_by_scale:
+            # Estimate hand scale from observed keypoints spread
+            valid_obs = joints2d_obs[:, :, :2]  # (N, 25, 2)
+            # Compute bbox size of observed keypoints for each hand
+            kp_min = valid_obs.min(dim=1, keepdim=True)[0]  # (N, 1, 2)
+            kp_max = valid_obs.max(dim=1, keepdim=True)[0]  # (N, 1, 2)
+            hand_scale = torch.sqrt(((kp_max - kp_min) ** 2).sum(dim=-1, keepdim=True))  # (N, 1, 1)
+            
+            # Normalize error by hand scale AND scale up to reasonable magnitude
+            error = error / hand_scale * 100.0  # Now error is in normalized units (0-100 scale)
+            
+            # Use FIXED sigma in normalized space (not divided by hand_scale!)
+            normalized_sigma = self.joints2d_sigma  # Already in normalized units
+        else:
+            normalized_sigma = self.joints2d_sigma
+
         # weight errors by detection confidence
-        robust_sqr_dist = gmof(
-            joints2d_pred - joints2d_obs[..., :2], self.joints2d_sigma
-        )
+        robust_sqr_dist = gmof(error, normalized_sigma)
         reproj_err = (joints2d_obs_conf**2) * robust_sqr_dist
-        loss = torch.sum(reproj_err)
+        loss = torch.mean(reproj_err)
         return loss
+    
+
+# class Joints2DLoss(nn.Module):
+#     def __init__(self, ignore_op_joints=None, joints2d_sigma=100):
+#         super().__init__()
+#         self.ignore_op_joints = ignore_op_joints
+#         self.joints2d_sigma = joints2d_sigma
+
+#     def forward(self, joints2d_obs, joints2d_pred, mask=None):
+#         """
+#         :param joints2d_obs (B, T, 25, 3)
+#         :param joints2d_pred (B, T, 22, 2)
+#         :param mask (optional) (B, T)
+#         """
+#         if mask is not None:
+#             mask = mask.bool()
+#             joints2d_obs = joints2d_obs[mask]  # (N, 25, 3)
+#             joints2d_pred = joints2d_pred[mask]  # (N, 22, 2)
+
+#         joints2d_obs_conf = joints2d_obs[..., 2:3]
+#         if self.ignore_op_joints is not None:
+#             # set confidence to 0 so not weighted
+#             joints2d_obs_conf[..., self.ignore_op_joints, :] = 0.0
+
+#         # Compute per-joint pixel errors
+#         error = joints2d_pred - joints2d_obs[..., :2]  # (N, J, 2)
+#         pixel_error = torch.sqrt((error**2).sum(dim=-1, keepdim=True))  # (N, J, 1)
+        
+#         # Use Smooth L1 (Huber) loss: L2 for small errors, L1 for large errors
+#         # This prevents gradient explosion while keeping strong gradients for normal errors
+#         # Beta=1000 means: errors <1000px get L2 (strong gradients), errors >1000px get L1 (bounded)
+#         beta = 1000.0  # Transition point: L2 below, L1 above
+        
+#         smooth_l1 = torch.nn.functional.smooth_l1_loss(
+#             joints2d_pred, 
+#             joints2d_obs[..., :2], 
+#             reduction='none',
+#             beta=beta
+#         )  # (N, J, 2)
+        
+#         sqr_dist = smooth_l1
+        
+#         # DEBUG
+#         print(f'Pixel errors: mean={pixel_error.mean():.1f}, max={pixel_error.max():.1f}, median={pixel_error.median():.1f}')
+#         num_large = (pixel_error > beta).sum().item()
+#         print(f'L2 loss for {pixel_error.numel() - num_large}/{pixel_error.numel()} joints, L1 for {num_large} large >{beta}px')
+#         print(f'Loss stats: mean={sqr_dist.mean():.2f}, max={sqr_dist.max():.2f}')
+
+#         # Weight by confidence and compute loss
+#         reproj_err = (joints2d_obs_conf**2) * sqr_dist
+#         reproj_err = torch.clamp(reproj_err, max=1000)
+#         loss = torch.mean(reproj_err)
+#         return loss
 
 
 class Points3DLoss(nn.Module):
@@ -1102,14 +1182,34 @@ def shape_prior_loss(betas_pred):
     return loss
 
 
-def joints3d_smooth_loss(joints3d_pred, mask=None):
+def joints3d_smooth_loss(joints3d_pred, mask=None, normalize_by_scale=True):
     """
     :param joints3d_pred (B, T, J, 3)
     :param mask (optional) (B, T)
+    :param normalize_by_scale: If True, normalize by hand scale for size-invariance
     """
-    # minimize delta steps
     B, T, *dims = joints3d_pred.shape
-    loss = (joints3d_pred[:, 1:, :, :] - joints3d_pred[:, :-1, :, :]) ** 2
+    
+    # Normalize by hand scale FIRST to make loss size-invariant
+    if normalize_by_scale:
+        # Estimate hand scale from 3D joint positions at each frame
+        # Use bbox of joints as scale reference
+        joints_min = joints3d_pred.min(dim=2, keepdim=True)[0]  # (B, T, 1, 3)
+        joints_max = joints3d_pred.max(dim=2, keepdim=True)[0]  # (B, T, 1, 3)
+        hand_scale = torch.sqrt(((joints_max - joints_min) ** 2).sum(dim=-1, keepdim=True))  # (B, T, 1, 1)
+        # hand_scale = torch.clamp(hand_scale, min=0.05)  # Avoid division by very small numbers
+        
+        # Normalize joints FIRST by their own scale at each frame (same as joints2d)
+        joints3d_pred_normalized = joints3d_pred / hand_scale# (B, T, J, 3) - same scale factor as joints2d
+        # print(hand_scale.shape, hand_scale, joints3d_pred_normalized.shape, joints3d_pred_normalized)
+        # raise ValueError
+    else:
+        joints3d_pred_normalized = joints3d_pred
+    
+    # Now compute delta on normalized joints
+    delta = joints3d_pred_normalized[:, 1:, :, :] - joints3d_pred_normalized[:, :-1, :, :]  # (B, T-1, J, 3)
+    
+    loss = delta ** 2
     if mask is not None:
         mask = mask.bool()
         mask = mask[:, 1:] & mask[:, :-1]
