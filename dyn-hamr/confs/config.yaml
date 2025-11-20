@@ -28,7 +28,7 @@ vis:
     - front
     - src_cam
   make_grid: True
-  overwrite: False
+  overwrite: True
   render_keypoints: False  # Overlay GT 2D keypoints on source camera view
 
 MANO:
@@ -54,7 +54,7 @@ log_root: ../outputs/logs
 log_dir: ${log_root}/${data.type}-${data.split}
 exp_name: ${now:%Y-%m-%d}
 temporal_smooth: True
-gpu: 1
+gpu: 0
 is_static: False
 
 hydra:

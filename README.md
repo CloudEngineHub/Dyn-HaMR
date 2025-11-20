@@ -62,26 +62,56 @@ We propose **Dyn-HaMR** to reconstruct 4D global hand motion from monocular vide
 
 ## News :triangular_flag_on_post:
 - [2025/11/09] 🚀 **Major Update**: 
-  - Integrated [VIPE](https://github.com/facebookresearch/vipe) for camera estimation, significantly improving reconstruction quality over DROID-SLAM
-  - Enhanced HaMeR with robust hallucination prevention and bbox jump correction for better hand tracking
-  - Improved temporal consistency with IoU-based overlap detection and handedness tracking
-  
+  - **Integrated [VIPE](https://github.com/facebookresearch/vipe)** for camera estimation, significantly improving reconstruction quality over DROID-SLAM
+  - **Enhanced Hand Tracker** with robust hallucination prevention and handedness correction for better hand tracking and **significantly** Improved temporal consistency. Please `pip install ultralytics==8.1.34` since YOLO is using in this version (Thanks to [WiloR](https://github.com/rolpotamias/WiLoR)). Please download the checkpoint from [here](https://huggingface.co/spaces/rolpotamias/WiLoR/resolve/main/pretrained_models/detector.pt) and put it under `third-party/hamer/pretrained_models`.
+
   See comparison below:
 
   <table>
     <tr>
-      <th>Previous: DROID-SLAM</th>
-      <th>New: VIPE + Enhanced HaMeR (Recommended)</th>
+      <th>Before: Bad camera estimation DROID-SLAM</th>
+      <th>New: VIPE + enhanced HaMeR (Recommended)</th>
     </tr>
     <tr>
       <td>
-        <video src="./assets/droid_result.mp4" width="100%"></video>
+        <video src="./assets/droid_result.mp4" width="100%" autoplay muted playsinline loop></video>
       </td>
       <td>
-        <video src="./assets/vipe_result.mp4" width="100%"></video>
+        <video src="./assets/vipe_result.mp4" width="100%" autoplay muted playsinline loop></video>
       </td>
     </tr>
   </table>
+
+  <table>
+    <tr>
+      <th>Before: Bad handedness shifting with original HaMeR</th>
+      <th>New: Enhanced hand tracker (Recommended)</th>
+    </tr>
+    <tr>
+      <td>
+        <video src="./assets/handedness1.mp4" width="100%" autoplay muted playsinline loop></video>
+      </td>
+      <td>
+        <video src="./assets/handedness2.mp4" width="100%" autoplay muted playsinline loop></video>
+      </td>
+    </tr>
+  </table>
+
+  <table>
+    <tr>
+      <th>Before: Bad handedness shifting with original HaMeR</th>
+      <th>New: Enhanced hand tracker (Recommended)</th>
+    </tr>
+    <tr>
+      <td>
+        <video src="./assets/handedness3.mp4" width="100%" autoplay muted playsinline loop></video>
+      </td>
+      <td>
+        <video src="./assets/handedness4.mp4" width="100%" autoplay muted playsinline loop></video>
+      </td>
+    </tr>
+  </table>
+
 - [2025/06/04] Code released.
 - [2024/12/18] [Paper](https://arxiv.org/abs/2412.12861) is now available on arXiv. ⭐
 
@@ -181,7 +211,7 @@ python run_vis.py --log_root <LOG_ROOT>
 ```
 This will visualize all log subdirectories and save the rendered videos and images, as well as saved 3D meshes in the world space in `<LOG_ROOT>`. Please visit `run_vis.py` for further details. Alternatively, you can also use the following command to run and visualize the results in one-stage:
 ```
-python -u run_opt.py data=video run_opt=True run_vis=True is_static=<True of False>
+python -u run_opt.py data=video_vipe run_opt=True run_vis=True is_static=<True of False>
 ```
 As a multi-stage pipeline, you can customize the optimization process. Add `is_static=True` for static camera videos. Adding `run_prior=True` can activate the motion prior in stage III. Please note that in the current version, each motion chunk size needs to be set to 128 to be compatible with the original setting of HMP only when the prior module is activated.
 

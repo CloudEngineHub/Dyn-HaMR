@@ -25,3 +25,4 @@ mmcv==1.3.9
 timm==0.4.9
 xtcocotools
 pandas==1.4.0
+ultralytics==8.1.34

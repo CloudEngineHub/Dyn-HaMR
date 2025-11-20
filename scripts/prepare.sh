@@ -18,5 +18,4 @@ unzip hmp_model.zip
 mv hmp_model ./_DATA/
 rm -rf hmp_model.zip
 
-# Download for the VPoser
-# TODO
+wget https://huggingface.co/spaces/rolpotamias/WiLoR/resolve/main/pretrained_models/detector.pt -P ./third-party/hamer/pretrained_models/

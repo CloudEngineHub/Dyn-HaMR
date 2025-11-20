@@ -110,21 +110,22 @@ def run_vis(
     dataset,
     out_dir,
     dev_id,
-    phases=["motion_chunks"],
+    phases=["smooth_fit"],
     render_views=["src_cam", "above", "side"],
-    make_grid=False,
+    make_grid=True,
     overwrite=False,
     save_dir=None,
-    render_kps=True,
+    render_kps=False,
     render_layers=False,
     save_frames=False,
-    **kwargs,
+    **kwargs
 ):
     save_dir = out_dir if save_dir is None else save_dir
     print("OUT_DIR", out_dir)
     print("SAVE_DIR", save_dir)
     print("VISUALIZING PHASES", phases)
     print("RENDERING VIEWS", render_views)
+    print("RENDER_KPS", render_kps)
     print("OVERWRITE", overwrite)
 
     # save input frames
@@ -199,6 +200,7 @@ def run_vis(
             make_video_grid_2x2(
                 grid_path,
                 vid_paths,
+                fps=cfg.fps,
                 overwrite=True,
             )
 
@@ -454,7 +456,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--log_root", required=True)
     parser.add_argument("--save_root", default='./')
-    parser.add_argument("--phases", nargs="*", default=["motion_chunks"])
+    parser.add_argument("--phases", nargs="*", default=["smooth_fit"])
     parser.add_argument("--gpus", nargs="*", default=[0])
     parser.add_argument(
         "-rv",

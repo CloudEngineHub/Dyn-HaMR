@@ -321,7 +321,7 @@ def get_static_views(seq_name=None, bounds=None):
     return top_pose, side_pose, skip
 
 
-def make_video_grid_2x2(out_path, vid_paths, overwrite=False):
+def make_video_grid_2x2(out_path, vid_paths, fps, overwrite=False):
     if os.path.isfile(out_path) and not overwrite:
         print(f"{out_path} already exists, skipping.")
         return
@@ -330,53 +330,50 @@ def make_video_grid_2x2(out_path, vid_paths, overwrite=False):
         print("not all inputs exist!", vid_paths)
         return
 
-    # resize each input by half and then tile
-    # so the output video is the same resolution
-    # v1, v2, v3, v4 = vid_paths
-    # cmd = (
-    #     f"ffmpeg -i {v1} -i {v2} -i {v3} -i {v4} "
-    #     f"-filter_complex '[0:v]scale=iw/2:ih/2[v0];"
-    #     f"[1:v]scale=iw/2:ih/2[v1];"
-    #     f"[2:v]scale=iw/2:ih/2[v2];"
-    #     f"[3:v]scale=iw/2:ih/2[v3];"
-    #     f"[v0][v1][v2][v3]xstack=inputs=4:layout=0_0|w0_0|0_h0|w0_h0[v]' "
-    #     f"-map '[v]' {out_path} -y"
-    # )
+    # Open all videos for reading
+    readers = [imageio.get_reader(v, 'ffmpeg') for v in vid_paths]
+    try:
+        # Check min frame count to avoid index errors; also get shape/fps
+        lengths = [reader.count_frames() for reader in readers]
+        min_len = min(lengths)
+        if min_len == 0:
+            print("Some videos have 0 frames!")
+            for reader in readers:
+                reader.close()
+            return
 
-    # print(cmd)
-    # subprocess.call(cmd, shell=True, stdin=subprocess.PIPE)
+        # We assume the first video dictates the output fps and (half)size
+        meta = readers[0].get_meta_data()
+        # fps = meta.get('fps', 30)
+        orig_size = meta['size']  # (width, height)
+        width = orig_size[0] // 2
+        height = orig_size[1] // 2
+        out_size = (width * 2, height * 2)
 
-    # 读取四个视频
-    videos = [cv2.VideoCapture(v) for v in vid_paths]
+        writer = imageio.get_writer(out_path, fps=fps, codec='libx264', ffmpeg_log_level="quiet", macro_block_size=None)
 
-    # Check if videos are opened successfully
-    if any(not video.isOpened() for video in videos):
-        print("Error opening input videos.")
-        return
+        for t in range(min_len):
+            frames = []
+            for r in readers:
+                try:
+                    frame = r.get_data(t)
+                except Exception:
+                    frame = None
+                frames.append(frame)
+            if any(f is None for f in frames):
+                break
+            # Resize all to (width, height)
+            frames = [cv2.resize(f, (width, height)) for f in frames]
+            row1 = np.hstack(frames[:2])
+            row2 = np.hstack(frames[2:])
+            grid = np.vstack([row1, row2])
+            # Ensure uint8
+            if grid.dtype != np.uint8:
+                grid = np.clip(grid, 0, 255).astype(np.uint8)
+            writer.append_data(grid)
 
-    # Get video properties (assuming all videos have the same properties)
-    width = int(videos[0].get(cv2.CAP_PROP_FRAME_WIDTH) / 2)
-    height = int(videos[0].get(cv2.CAP_PROP_FRAME_HEIGHT) / 2)
-    fps = videos[0].get(cv2.CAP_PROP_FPS)
-
-    # Create VideoWriter object
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # You can choose a different codec if needed
-    out = cv2.VideoWriter(out_path, fourcc, fps, (width * 2, height * 2))
-
-    # Read and resize frames, then stack them
-    while True:
-        frames = [video.read()[1] for video in videos]
-        if any(frame is None for frame in frames):
-            break
-        else:
-            frames = [cv2.resize(frame, (width, height)) for frame in frames]
-        
-        stacked_frame = np.vstack([np.hstack(frames[:2]), np.hstack(frames[2:])])
-        out.write(stacked_frame)
-
-    # Release VideoCapture and VideoWriter objects
-    for video in videos:
-        video.release()
-    out.release()
-
-    print(f"Video grid created: {out_path}")
+        writer.close()
+        print(f"Video grid created: {out_path}")
+    finally:
+        for reader in readers:
+            reader.close()

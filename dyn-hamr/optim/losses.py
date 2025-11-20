@@ -824,6 +824,13 @@ class Joints2DLoss(nn.Module):
         :param joints2d_pred (B, T, 22, 2)
         :param mask (optional) (B, T)
         """
+        # Safety check: detect NaN in predictions before computing loss
+        if torch.isnan(joints2d_pred).any() or torch.isinf(joints2d_pred).any():
+            print(f"ERROR: joints2d_pred contains NaN or Inf!")
+            print(f"  NaN count: {torch.isnan(joints2d_pred).sum().item()}")
+            print(f"  This means MANO model produced invalid output")
+            return torch.tensor(1e8, device=joints2d_pred.device, requires_grad=True)
+        
         if mask is not None:
             mask = mask.bool()
             joints2d_obs = joints2d_obs[mask]  # (N, 25, 3)
@@ -845,6 +852,17 @@ class Joints2DLoss(nn.Module):
             kp_min = valid_obs.min(dim=1, keepdim=True)[0]  # (N, 1, 2)
             kp_max = valid_obs.max(dim=1, keepdim=True)[0]  # (N, 1, 2)
             hand_scale = torch.sqrt(((kp_max - kp_min) ** 2).sum(dim=-1, keepdim=True))  # (N, 1, 1)
+            
+            # Safety check: detect invalid/degenerate cases
+            if torch.isnan(hand_scale).any() or torch.isinf(hand_scale).any() or (hand_scale < 5.0).any():
+                print(f"ERROR: Invalid hand_scale! min={hand_scale.min():.2f}, max={hand_scale.max():.2f}")
+                print(f"  This indicates MANO produced degenerate output (collapsed joints)")
+                print(f"  kp_min: {kp_min[0, 0]}, kp_max: {kp_max[0, 0]}")
+                # Return a large constant loss to signal the optimizer this is a bad configuration
+                return torch.tensor(1e6, device=hand_scale.device, requires_grad=True)
+            
+            # Clamp to reasonable range (5-1000 pixels)
+            hand_scale = torch.clamp(hand_scale, min=5.0, max=1000.0)
             
             # Normalize error by hand scale AND scale up to reasonable magnitude
             error = error / hand_scale * 100.0  # Now error is in normalized units (0-100 scale)
@@ -1188,6 +1206,12 @@ def joints3d_smooth_loss(joints3d_pred, mask=None, normalize_by_scale=True):
     :param mask (optional) (B, T)
     :param normalize_by_scale: If True, normalize by hand scale for size-invariance
     """
+    # Safety check: detect NaN in predictions before computing loss
+    if torch.isnan(joints3d_pred).any() or torch.isinf(joints3d_pred).any():
+        print(f"ERROR: joints3d_pred contains NaN or Inf in smooth loss!")
+        print(f"  NaN count: {torch.isnan(joints3d_pred).sum().item()}")
+        return torch.tensor(1e8, device=joints3d_pred.device, requires_grad=True)
+    
     B, T, *dims = joints3d_pred.shape
     
     # Normalize by hand scale FIRST to make loss size-invariant
@@ -1197,12 +1221,19 @@ def joints3d_smooth_loss(joints3d_pred, mask=None, normalize_by_scale=True):
         joints_min = joints3d_pred.min(dim=2, keepdim=True)[0]  # (B, T, 1, 3)
         joints_max = joints3d_pred.max(dim=2, keepdim=True)[0]  # (B, T, 1, 3)
         hand_scale = torch.sqrt(((joints_max - joints_min) ** 2).sum(dim=-1, keepdim=True))  # (B, T, 1, 1)
-        # hand_scale = torch.clamp(hand_scale, min=0.05)  # Avoid division by very small numbers
+        
+        # Safety check: detect invalid/degenerate cases
+        if torch.isnan(hand_scale).any() or torch.isinf(hand_scale).any() or (hand_scale < 0.001).any():
+            print(f"ERROR: Invalid hand_scale in joints3d_smooth! min={hand_scale.min():.4f}, max={hand_scale.max():.4f}")
+            print(f"  This indicates MANO produced degenerate 3D output")
+            # Return a large constant loss
+            return torch.tensor(1e6, device=hand_scale.device, requires_grad=True)
+        
+        # Clamp to reasonable range (0.001m - 1m for hand size)
+        hand_scale = torch.clamp(hand_scale, min=0.001, max=1.0)
         
         # Normalize joints FIRST by their own scale at each frame (same as joints2d)
-        joints3d_pred_normalized = joints3d_pred / hand_scale# (B, T, J, 3) - same scale factor as joints2d
-        # print(hand_scale.shape, hand_scale, joints3d_pred_normalized.shape, joints3d_pred_normalized)
-        # raise ValueError
+        joints3d_pred_normalized = joints3d_pred / hand_scale  # (B, T, J, 3) - same scale factor as joints2d
     else:
         joints3d_pred_normalized = joints3d_pred
     
@@ -1214,6 +1245,8 @@ def joints3d_smooth_loss(joints3d_pred, mask=None, normalize_by_scale=True):
         mask = mask.bool()
         mask = mask[:, 1:] & mask[:, :-1]
         loss = loss[mask]
+
+    loss = torch.mean(loss, dim=0)
     loss = 0.5 * torch.sum(loss)
     return loss
 
