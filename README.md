@@ -61,7 +61,7 @@ We propose **Dyn-HaMR** to reconstruct 4D global hand motion from monocular vide
 <br/>
 
 ## News :triangular_flag_on_post:
-- [2025/11/09] 🚀 **Major Update**: 
+- [2025/11/20] 🚀 **Major Update**: 
   - **Integrated [VIPE](https://github.com/facebookresearch/vipe)** for camera estimation, significantly improving reconstruction quality over DROID-SLAM
   - **Enhanced Hand Tracker** with robust hallucination prevention and handedness correction for better hand tracking and **significantly** Improved temporal consistency. Please `pip install ultralytics==8.1.34` since YOLO is using in this version (Thanks to [WiloR](https://github.com/rolpotamias/WiLoR)). Please download the checkpoint from [here](https://huggingface.co/spaces/rolpotamias/WiLoR/resolve/main/pretrained_models/detector.pt) and put it under `third-party/hamer/pretrained_models`.
 
@@ -69,45 +69,45 @@ We propose **Dyn-HaMR** to reconstruct 4D global hand motion from monocular vide
 
   <table>
     <tr>
-      <th>Before: Bad camera estimation DROID-SLAM</th>
+      <th>Before: Jitter from DROID-SLAM</th>
       <th>New: VIPE + enhanced HaMeR (Recommended)</th>
     </tr>
     <tr>
-      <td>
-        <video src="./assets/droid_result.mp4" width="100%" autoplay muted playsinline loop></video>
+      <td align="center">
+        <img src="./assets/droid_result.gif" width="100%">
       </td>
-      <td>
-        <video src="./assets/vipe_result.mp4" width="100%" autoplay muted playsinline loop></video>
-      </td>
-    </tr>
-  </table>
-
-  <table>
-    <tr>
-      <th>Before: Bad handedness shifting with original HaMeR</th>
-      <th>New: Enhanced hand tracker (Recommended)</th>
-    </tr>
-    <tr>
-      <td>
-        <video src="./assets/handedness1.mp4" width="100%" autoplay muted playsinline loop></video>
-      </td>
-      <td>
-        <video src="./assets/handedness2.mp4" width="100%" autoplay muted playsinline loop></video>
+      <td align="center">
+        <img src="./assets/vipe_result.gif" width="100%">
       </td>
     </tr>
   </table>
 
   <table>
     <tr>
-      <th>Before: Bad handedness shifting with original HaMeR</th>
+      <th>Before: Handedness shifting with original HaMeR</th>
       <th>New: Enhanced hand tracker (Recommended)</th>
     </tr>
     <tr>
-      <td>
-        <video src="./assets/handedness3.mp4" width="100%" autoplay muted playsinline loop></video>
+      <td align="center">
+        <img src="./assets/handedness1.gif" width="100%">
       </td>
-      <td>
-        <video src="./assets/handedness4.mp4" width="100%" autoplay muted playsinline loop></video>
+      <td align="center">
+        <img src="./assets/handedness2.gif" width="100%">
+      </td>
+    </tr>
+  </table>
+
+  <table>
+    <tr>
+      <th>Before: Handedness shifting with original HaMeR</th>
+      <th>New: Enhanced hand tracker (Recommended)</th>
+    </tr>
+    <tr>
+      <td align="center">
+        <img src="./assets/handedness3.gif" width="100%">
+      </td>
+      <td align="center">
+        <img src="./assets/handedness4.gif" width="100%">
       </td>
     </tr>
   </table>
